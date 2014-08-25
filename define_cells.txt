@@ -1,0 +1,14 @@
+var cellnum = 1;
+var root    = "cell";
+var current = "cell1";
+
+macro "Point Tool - c0a0L18f8L818f" {
+   getCursorLoc(x, y, z, flags);
+   print(current + " " + x + " " + y);
+}
+
+macro "Update Tool - c0a0L18f8L818r" {
+   getCursorLoc(x, y, z, flags);
+   cellnum += 1;
+   current  = root + cellnum;
+}
