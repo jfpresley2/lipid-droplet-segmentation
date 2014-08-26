@@ -1,0 +1,6 @@
+for i in $@; do
+   echo "**${i}"
+   fname=`echo ${i} | cut -f1 -d.`
+   echo $fname
+   convert ${fname}.tif ${fname}.pgm
+done

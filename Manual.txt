@@ -1,0 +1,166 @@
+Included ImageJ macro:
+  define_cells.txt -- a toolkit macro which gives an extremely crude way to define cell boundaries.  
+
+Included Script:
+   coloc.rb  -- this Ruby script takes a file created by define_cells and saved from ImageJ and compiles statistics for each defined cell
+   conv2PPM  -- sh script that converts its list of arguments from tiff to ppm (color portable bitmap)
+   conv2PGM  -- sh script that converts its list of arguments from tiff to pgm (greyscale portable bitmap)
+
+Included D source code:
+   project
+   median
+   ldspotterWater
+   colocWater
+
+
+
+--- Instructions ---
+
+1. Convert images to ppm (color) or pgm format.  There are several ways to do this.  One way is to open the original image in ImageJ and save as pgm but this will only work for greyscale images.  Another is to install the open-source ImageMagick package.  The command-line program "convert" in the ImageMagick package will work for either color or greyscale.
+
+$ convert my_color_image.tif my_color_image.ppm
+$ convert my_greyscale_image.tif my_greyscale_image.pgm
+
+ImageMagick is not provided, but if you can install it, two simple shell scripts are provided in this package to facilitate mass conversions.
+
+$ ./conv2PPM *.tif         #  converts all tiff files in a folder to ppm format (use with color or multi-channel images)
+$ ./conv2PGM *.tif         #  converts all tiff files in a folder to pgm format (do not use with color or multi-channel images)
+                           #  images of more than 3 channels won't work.  You may have to figure out how to pare them down with your own software
+                           #  images of more than 16 bits per channel  may be problematic.  My software can handle them as ascii ppm/pgm but convert may not 
+
+2.  Z-series must be projected using the "project" program in this package.  It projects by addition, and does a slice-by-slice background correction.  If you are processing single slices, run "median" instead.  The background correction is crucial, but can be carried out by either program.
+
+project expects a list of files with composition prefix###suffix, where ### represents a fixed number of zero-padded digits (such as hela000.pgm hela001.pgm hela002.pgm).  Normally, three digits are expected "project --digits 4" would override this, so prefix####suffix.  The first value defaults to 0 (or "000") but can be overriden, e.g., with "--first 2".  The program will automatically find the last file unless you specify a file value using --last 15.  You don't need to do this if you will always project all the z-slices.
+
+Z-series projection sample (for series running from hela24hrrab18a000.ppm to hela24hrrab18a012.ppm).  
+
+$ ./project --root hela24hrrab18a --extension ppm --neighborhood 128 --outputfile hela24hrrab18a_proj.ppm
+
+OR
+
+$ ./median --in hela24hrrab18a.ppm --out background_corrected.ppm --neighborhood 128
+
+3. Run one of the programs with appropriate parameters.  For large numbers of images, shell scripts may be useful. 
+
+./ldspotterWater --in hela24hrrab18a_proj.ppm --color 0 --circles zcircle.ppm --out zout.pgm --rejected zrejected.pgm --data zdata2.dat
+./colocWater --img1 img1.pgm --img2 img2.pgm --data1 dat1.dat --data2 dat2.dat --max 500 --thresh1 -1 --thresh2 -1 --returnroot1 img1_proc_ --returnroot2 img2_proc_
+
+4. Both of these programs produce lists of objects found in the image.  
+
+5. To assign spots to cells, select cells using ImageJ macro
+
+6. ruby coloc.rb polys.txt colocResults.dat colocResults.log
+     
+--- Documentation for Included Programs ---
+
+------------
+
+median:  
+
+This program takes an input image and subtracts a median-filtered background from it.  Any negative pixels resulting from the background subtraction are set to zero.  
+
+Example:  median --in inputImg.pgm --out corrected.pgm --neighborhood 120
+
+Parameters:
+
+--in inputImg.pgm  // name of input image, required parameter.  Image can be of type pgm or ppm.
+--out correctedImage.pgm  // name of output image, required parameter.  Type will be same as input image.
+-- neighborhood 120    // size of neighborhood around each pixel (e.g., 120 gives a 120x120 box).  Median value within the
+                       // box is calculated.  This will default to 120, which is good for our lipid droplets, but it is best to specify to about 2x size of largest
+                       // object of interest depending on what you're doing.
+-- subsample 4         // Subsamples the image to speed up median calculation.  Don't specify (default 4 will be used) unless you are using really small
+                       // neighborhood sizes.
+
+------------
+
+project:
+
+This program takes a series of sequentially-numbered pgm or ppm images (a z-stack).  It subtracts a median-filtered background from each slice and then adds the slices to make a projected image.  The example projects a series img000.pgm img001.pgm img002.pgm img003.pgm img004.pgm img005.pgm img006.pgm giving img_proj.pgm
+
+Example:  project --root img --first 0 --last 6 --extension pgm --neighborhood 120 --outputfile img_proj.pgm
+
+Parameters:
+
+--root name  // mandatory root filename  i.e. name000.pgm name001.pgm etc
+--first 0    // first numbered file, defaults to zero if not specified
+--last 6     // last numbered file, set automatically to last readable file in series if not specified
+--digits 3   // number of zero-padded digits in filenames, defaults to 3.  If not zero-padded, you may have to hack the program
+--extension pgm // mandatory extension.  Normally pgm or ppm
+--neighborhood 120 // neighborhood size for median filter, defaults to 120.  Setting value to -1 skips median filter
+--outputfile name_proj.pgm // FULL name of output file that holds projected image.  Make sure it has pgm for greyscale and ppm for color
+--nomedian      // use only when you DON'T want the median filter.  Setting neighborhood to -1 is an alternate way of getting this results
+--normalize 4095 // rescale image range -- set to -1 when not desired (e.g., when absolute image brightness is important)
+                 // because the z series are projected by addition, max pixel value at the end may be higher than in any of the source images
+                 // When normalization not used, you might overflow max pixel values (>65535).  If that happens you are on your own (for now)
+                 // Max values of 65535 or below won't cause any problem.
+------------
+
+ldspotterWater:
+
+This program first applies global and local threshold to an image which should be already background-corrected (using project, median or an external program).  It then determines which objects are circular exactly as described in the JHC paper, and passes the non-circular objects to a secondary watershed segmentation.  Options exist to skip the watershed if it isn't desired.
+
+Example:  ldspotterWater --in img.pgm --circles circles.ppm --kept img_kept.pgm --rejected img_rejected.pgm --total img_total.pgm --predata no_watershed.dat --data datafile.dat
+
+Example (no watershed run):ldspotterWater --in img.pgm --circles circles.ppm --kept img_kept.pgm --rejected img_rejected.pgm --total img_total.pgm --predata no_watershed.dat --data datafile.dat --nowatershed
+
+Parameters:
+
+--in img.pgm      // input image, mandatory
+[--color 2]       // Optional.  Allows picking channel from color input image, 0=red, 1=green, 2=blue.  Not well tested, use with caution
+[--minsize 6]     // Minimum pixels in an object.  Defaults to 6
+[--thresh -1]     // Threshold.  Defaults to -1, which sets threshold at 10% of brightest pixel value in image.  
+                  //   --thresh 25 would set pixels below 25 to zero
+[--gauss 2.5]     // Radius of gaussian convolution used to smooth image just before applying watershed.  It defaults to 2.5 pixels.
+                  // This DOES NOT affect the original thresholding-based object isolation.  We haven't found any reason to modify this
+                  // value, but if the watershed obviously over-segments on very noisy images, increasing this might be worth a try.  If clusters of very small
+                  // lipid droplets are passed to the watershed, reducing this value might help, but there will be over-segmentation with too
+                  // little smoothing, so run tests and inspect the result.
+[--circles circ.ppm]  // Optional filename to write color ppm image. Circles fit to all isolated objects are shown with color coding
+                      //    green, yellow = circular (green is for larger radii, yellow is for smaller radii with relaxed fit threshold)
+                      //    red, blue     = not circular (i.e., clusters.  red indicates bad fit, blue indicates gross failure)
+[--accepted accepted.pgm] // Optional filename to write circular structures.  Most useful for performance tests
+[--rejected rejected.pgm] // Optional filename to write non-circular structures.
+[--total output.pgm]      // Optional filename to write final segmented image
+[--nowatershed]       // Do pure threshold-based segmentation and skip watershed.
+[--predata thresh.dat] // Details of quantitation of all objects PRIOR to applying watershed
+[--data datafile.dat]  // All objects (final isolation).
+
+----------
+
+colocWater:
+
+This program is essentially ldspotterWater, but operates on two channels.  Objects are isolated separately for each of the two channels, and then objects in Channel 1 are divided into those that overlap with object in channel 2 by more than a certain fraction of their area (settable by --coloc 0.3;  defaulting to 0.3) and those that do not overlap sufficiently.  The reverse colocalization is also done.  Many of the parameters can be set separately for each of the two channels.  Further, the watershed can be omitted separately for either channel (using --nowatershed1 or --nowatershed2).  The secondary watershed segmentation should probably be omitted for any non-lipid-droplet channel unless you can establish by testing that is a good thing to do.  This routine currently does not set everything possible from the command line and is a bit complex, so it could benefit from further work.  The --color parameter facilitates taking the two channels from the same image, but is not currently well-tested.  As we use this program in the future, modifications will be made as needed and posted here.
+
+Example: colocWater --img1 img1.pgm --img2 img2.pgm --data1 dat1.dat --data2 dat2.dat --max 500 --thresh1 -1 --thresh2 -1 --returnroot1 img1_proc_ --returnroot2 img2_proc_
+
+Paraameters:
+
+--img1 img1.pgm     // mandatory first input image.  greyscale unless --color is used
+--img2 img2.pgm     // second input images (not mandatory if --color set
+--color rg          // first char (r, g or b) extracts appropriate channel from img1 for first image
+                    //   second char(r, g or b) extracts appropriate channel from img2 for second image
+                    //   thus --img2 not needed. Use if colocalizing two channels from same image (right now must be 3-channel red-green-blue)
+--data1 dat1.dat    // output file to report analysis of image1
+--data2 dat2.dat    // output file to report analysis of image2
+--min 6             // minimum number of pixels for valid object, defaults to 6.  Usually you can leave this as default.
+--thresh1 -1        // threshold below which pixels set to zero.  -1 is default, setting at 10% of maximum pixel value
+--thresh2 -1        //    Otherwise set at number, i.e. --thresh1 250 sets threshold of 250 for image 1
+--coloc1 0.3        // Fraction of pixels in an object in Image 1 that must overlap with an object in Image 2 to be considered colocalized
+--coloc2 0.3        // Fraction of pixels in an object in Image 2 that must overlap with an object in Image 2 to be considered colocalized
+                    // Default is 0.3
+--returnroot1 img1_ // Root name for series of processed images derived from Image 1.  
+--returnroot2 img2_ // Root name for series of processed images derived from Image 2.
+                    //   Curently, all or none of these images will be written
+
+--noWatershed1      // Omit watershed segmentation of Image 1.  Recommended when not lipid droplet
+--noWatershed2      // Omit watershed segmentation of Image 2.  Recommended when not lipid droplet.
+--gauss1 2.5        // sd in pixels of gaussian blur to be applied to Image 1 prior to watershed segmentation.  Doesn't affect anything else.
+--gauss2 2.5        // sd in pixels of gaussian blur to be applied to Image 2 prior to watershed segmentation.  Doesn't affect anything else.
+                    //   gauss1 and gauss2 are needed because watersheds are sensitive to image noise and some smoothing is needed to prevent
+                    //   oversegmentation.  No need to adjust from default unless your results are bad.
+
+// below have no current effect, but that will be fixed
+
+--max 1000          // maximum number of pixels for valid object, defaults to 1000.  You may wish to adjust depending on your objects.
+--fract1 0.5        // fract1 and fract2 set the ratio to the highest pixel for local threshold.  Default is 0.5 (full-width half-maximum)      
+--fract2 0.5        //    Normally stick with the default.
